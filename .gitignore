@@ -1,0 +1,21 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+build/
+/captures
+.externalNativeBuild
+.cxx/
+local.properties
+
+# Vendored single-header decoders are fetched by a script, not committed.
+/app/src/main/cpp/third_party/dr_flac.h
+/app/src/main/cpp/third_party/dr_mp3.h
+
+# Compiled binaries
+*.apk
+tinyDJ.apk
+.kotlin/
+
+

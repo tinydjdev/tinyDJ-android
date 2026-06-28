@@ -1,0 +1,13 @@
+<resources>
+    <!-- Instrument palette: brushed-aluminum body, dark reel, single warm accent,
+         amber dot-matrix readout. -->
+    <color name="body">#D7D5D0</color>
+    <color name="body_dark">#BFBDB8</color>
+    <color name="reel">#161616</color>
+    <color name="reel_rim">#2C2C2C</color>
+    <color name="accent">#E8531A</color>
+    <color name="lcd_bg">#10130E</color>
+    <color name="lcd_on">#9DE24F</color>
+    <color name="ink">#1A1A1A</color>
+    <color name="ic_launcher_background">#161616</color>
+</resources>

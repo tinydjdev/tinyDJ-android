@@ -4,6 +4,12 @@ A single-deck, motorized-reel audio player for Android. One big spinning disc yo
 grab with a finger to **scrub, scratch, and varispeed** FLAC and MP3 files, with
 rich **haptics** that make the reel detents and buttons feel physical.
 
+<p align="center">
+  <img src="screenshots/player.jpg" width="30%" alt="Player UI" />
+  <img src="screenshots/library.jpg" width="30%" alt="Library UI" />
+  <img src="screenshots/settings.jpg" width="30%" alt="Settings UI" />
+</p>
+
 The audio core is a low-latency **C++/Oboe** engine: the whole file is decoded to
 PCM in RAM and read through a fractional pointer, so scrubbing is sample-accurate
 and the reel produces real **audible scratch** — forward and backward.

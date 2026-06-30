@@ -47,6 +47,14 @@ class SystemHapticEngine(context: Context) : HapticEngine {
             HapticSpec.Boundary -> submit { vibrate(predefined(VibrationEffect.EFFECT_DOUBLE_CLICK)) }
             HapticSpec.SnapHome -> submit { vibrate(prim(Composition.PRIMITIVE_TICK, 0.8f, VibrationEffect.EFFECT_TICK, 8)) }
             HapticSpec.ModeToggle -> submit { vibrate(combo(Composition.PRIMITIVE_CLICK to 0.7f, Composition.PRIMITIVE_QUICK_RISE to 0.4f, fallback = VibrationEffect.EFFECT_CLICK)) }
+            HapticSpec.HoldVibrate -> submit {
+                val effect = if (capabilities.hasAmplitudeControl) {
+                    VibrationEffect.createOneShot(5000, (255 * intensity).toInt().coerceIn(1, 255))
+                } else {
+                    VibrationEffect.createOneShot(5000, VibrationEffect.DEFAULT_AMPLITUDE)
+                }
+                vibrate(effect)
+            }
 
             is HapticSpec.Detent -> {
                 // Slow, deliberate scrub -> crisp TICK; very fine -> LOW_TICK.

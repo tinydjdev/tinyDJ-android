@@ -31,7 +31,7 @@ sealed interface HapticSpec {
 
     /**
      * Exactly one crisp notch for crossing ONE discrete unit of an adjustable value:
-     * varispeed (−50..+200), a system-menu setting, the volume readout, file selection,
+     * varispeed (−99..+200), a system-menu setting, the volume readout, file selection,
      * the NAME editor. These are emitted 1:1 — the ViewModel fires one [ValueTick] per
      * integer the value crosses (six units moved ⇒ six ticks) — and the engine delivers
      * them without the free-scrub coalescing of [Detent] (only an extreme safety cap).
@@ -50,4 +50,7 @@ sealed interface HapticSpec {
 
     /** A mode/toggle changed. */
     data object ModeToggle : HapticSpec
+
+    /** Device vibrates while holding loop button A. */
+    data object HoldVibrate : HapticSpec
 }

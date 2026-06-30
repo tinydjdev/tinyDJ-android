@@ -67,9 +67,11 @@ class OboeAudioEngine(
     }
 
     override fun play() {
+        nativeSetNormalSpeed(handle, Math.abs(baseSpeed).toDouble())
         nativeSetSpeed(handle, baseSpeed.toDouble())
         nativePlay(handle)
         _state.update { it.copy(isPlaying = true, speed = baseSpeed) }
+        PlaybackService.start(appContext)
     }
 
     override fun pause() {
@@ -92,6 +94,7 @@ class OboeAudioEngine(
         if (_state.value.isPlaying && !_state.value.isScrubbing) {
             nativeSetSpeed(handle, speed.toDouble())
         }
+        nativeSetNormalSpeed(handle, Math.abs(speed).toDouble())
         _state.update { it.copy(speed = speed) }
     }
 
@@ -104,6 +107,10 @@ class OboeAudioEngine(
     override fun setLoop(enabled: Boolean) {
         nativeSetLoop(handle, enabled)
         _state.update { it.copy(loop = enabled) }
+    }
+
+    override fun setLoopPoints(startFrame: Long, endFrame: Long) {
+        nativeSetLoopPoints(handle, startFrame, endFrame)
     }
 
     override fun stop() {
@@ -149,6 +156,7 @@ class OboeAudioEngine(
         pollJob?.cancel()
         ioScope.cancel()
         if (handle != 0L) nativeRelease(handle)
+        PlaybackService.stop(appContext)
     }
 
     override fun updateTrackId(oldId: String, newId: String) {
@@ -171,6 +179,14 @@ class OboeAudioEngine(
 
     override fun getDeviceRate(): Int {
         return if (handle != 0L) nativeDeviceRate(handle) else 48000
+    }
+
+    override fun setTapeFlutter(enabled: Boolean) {
+        if (handle != 0L) nativeSetTapeFlutter(handle, enabled)
+    }
+
+    override fun setSlipMode(enabled: Boolean) {
+        if (handle != 0L) nativeSetSlipMode(handle, enabled)
     }
 
     private external fun nativeStartRecording(handle: Long)
@@ -224,6 +240,10 @@ class OboeAudioEngine(
     private external fun nativeVuLeft(handle: Long): Float
     private external fun nativeVuRight(handle: Long): Float
     private external fun nativeRelease(handle: Long)
+    private external fun nativeSetLoopPoints(handle: Long, start: Long, end: Long)
+    private external fun nativeSetTapeFlutter(handle: Long, enabled: Boolean)
+    private external fun nativeSetSlipMode(handle: Long, enabled: Boolean)
+    private external fun nativeSetNormalSpeed(handle: Long, speed: Double)
 
     companion object {
         private const val TAG = "OboeAudioEngine"

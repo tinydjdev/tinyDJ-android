@@ -43,6 +43,8 @@ import kotlin.math.log10
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import android.content.IntentFilter
+import com.tinydj.ui.theme.AppTheme
+import com.tinydj.ui.theme.CurrentTheme
 import android.content.BroadcastReceiver
 
 // =====================================================================================
@@ -78,6 +80,11 @@ enum class SfxMode { ON, OFF }
 enum class MotorMode { OFF, PLAY, PLAY_REC }            // functional (gates the reel)
 enum class MemoQuality { HI_Q, STD }
 enum class SampleRateMode { R48, R96 }                  // display only
+
+enum class PlayerStyle { ORIGINAL, ADVANCED }
+enum class TapeFlutterMode { OFF, ON }
+enum class PitchRampMode { OFF, ON }
+enum class SlipMode { OFF, ON }
 
 /**
  * Kept for the existing render test (it imports and sets [LcdMode.TIME]). LIBRARY
@@ -116,7 +123,7 @@ data class DeckUiState(
     val usbConnected: Boolean = false,
 
     // ---- varispeed ----
-    val varispeed: Int = 0,            // -50..+200, 0 = detent
+    val varispeed: Int = 0,            // -99..+200, 0 = detent
     val reversed: Boolean = false,     // mirror of direction == REV
 
     // ---- current track / list ----
@@ -140,6 +147,13 @@ data class DeckUiState(
     val motor: MotorMode = MotorMode.PLAY_REC,
     val memoQuality: MemoQuality = MemoQuality.HI_Q,
     val sampleRateMode: SampleRateMode = SampleRateMode.R48,
+    val playerStyle: PlayerStyle = PlayerStyle.ORIGINAL,
+    val tapeFlutter: TapeFlutterMode = TapeFlutterMode.OFF,
+    val pitchRamp: PitchRampMode = PitchRampMode.OFF,
+    val slipMode: SlipMode = SlipMode.OFF,
+    val theme: AppTheme = AppTheme.LIGHT,
+    val loopStartFrame: Long? = null,
+    val loopEndFrame: Long? = null,
     val diskFreeGb: Int = 100,
     val diskUsedGb: Int = 12,
     val diskTotalGb: Int = 128,
@@ -229,6 +243,12 @@ data class DeckActions(
     // library
     val onOpenLibrary: () -> Unit = {},
     val onPickTrack: (index: Int) -> Unit = {},
+    // loop A-B
+    val onTapA: () -> Unit = {},
+    val onHoldA: () -> Unit = {},
+    val onTapB: () -> Unit = {},
+    val onPressA: () -> Unit = {},
+    val onCancelVibrate: () -> Unit = {},
 )
 
 // =====================================================================================
@@ -249,7 +269,7 @@ private data class DeckLocal(
     val transport: TransportState = TransportState.STOPPED_AT_START,
     val direction: PlayDirection = PlayDirection.FWD,
 
-    val varispeed: Int = 0,               // -50..+200
+    val varispeed: Int = 0,               // -99..+200
     val varispeedOpen: Boolean = false,
 
     // overlays (mutually exclusive in practice; the VM enforces it)
@@ -277,6 +297,13 @@ private data class DeckLocal(
     val memoQuality: MemoQuality = MemoQuality.HI_Q,
     val sampleRateMode: SampleRateMode = SampleRateMode.R48,
     val deviceName: String = "TINYDJ",
+    val playerStyle: PlayerStyle = PlayerStyle.ORIGINAL,
+    val tapeFlutter: TapeFlutterMode = TapeFlutterMode.OFF,
+    val pitchRamp: PitchRampMode = PitchRampMode.OFF,
+    val slipMode: SlipMode = SlipMode.OFF,
+    val theme: AppTheme = AppTheme.LIGHT,
+    val loopStartFrame: Long? = null,
+    val loopEndFrame: Long? = null,
     val timeHh: Int = 0,
     val timeMm: Int = 0,
     val dateDd: Int = 1,
@@ -307,7 +334,7 @@ private data class DeckLocal(
  *    LIBRARY, a TAP while playing opens/keeps VARISPEED, and a HOLD opens the SYSTEM MENU.
  *  - **System menu** — the full 17-item list with reel-scroll, PLUS=enter/advance-field,
  *    MINUS=back, MODE|STOP=exit, per-setting value pages and RESET rotate-to-confirm.
- *  - **Varispeed** — reel rotation sweeps −50..+200 % (engine rate 0.5..3.0) with a 0
+ *  - **Varispeed** — reel rotation sweeps −99..+200 % (engine rate 0.01..3.0) with a 0
  *    detent.
  *  - **Overlays** — DOWN-hold file info, STOP-hold delete, volume wedge.
  *  - **MOTOR gate** — OFF suppresses reel spin/scrub/varispeed-by-spin (finger still
@@ -350,6 +377,8 @@ class DeckViewModel(
     private fun loadSettings(default: DeckLocal): DeckLocal {
         val savedStrength = sharedPrefs.getFloat("vibrationStrength", default.vibrationStrength)
         rawHaptics.intensity = savedStrength
+        val loadedTheme = AppTheme.valueOf(sharedPrefs.getString("theme", default.theme.name) ?: default.theme.name)
+        CurrentTheme.currentTheme = loadedTheme
         return default.copy(
             playMode = PlayMode.valueOf(sharedPrefs.getString("playMode", default.playMode.name) ?: default.playMode.name),
             leds = LedBrightness.valueOf(sharedPrefs.getString("leds", default.leds.name) ?: default.leds.name),
@@ -358,6 +387,11 @@ class DeckViewModel(
             memoQuality = MemoQuality.valueOf(sharedPrefs.getString("memoQuality", default.memoQuality.name) ?: default.memoQuality.name),
             sampleRateMode = SampleRateMode.valueOf(sharedPrefs.getString("sampleRateMode", default.sampleRateMode.name) ?: default.sampleRateMode.name),
             deviceName = sharedPrefs.getString("deviceName", default.deviceName) ?: default.deviceName,
+            playerStyle = PlayerStyle.valueOf(sharedPrefs.getString("playerStyle", default.playerStyle.name) ?: default.playerStyle.name),
+            tapeFlutter = TapeFlutterMode.valueOf(sharedPrefs.getString("tapeFlutter", default.tapeFlutter.name) ?: default.tapeFlutter.name),
+            pitchRamp = PitchRampMode.valueOf(sharedPrefs.getString("pitchRamp", default.pitchRamp.name) ?: default.pitchRamp.name),
+            slipMode = SlipMode.valueOf(sharedPrefs.getString("slipMode", default.slipMode.name) ?: default.slipMode.name),
+            theme = loadedTheme,
             gainDb = sharedPrefs.getInt("gainDb", default.gainDb),
             vibrationStrength = savedStrength
         )
@@ -388,12 +422,15 @@ class DeckViewModel(
     private var varispeedAccum = 0f
     private var volumeTickAccum = 0f
     private var parameterAccum = 0f
+    private var scrubHapticAccum = 0f
 
     private var idleScrubJob: Job? = null
     private var bootJob: Job? = null
     private var overlayJob: Job? = null
     private var audioRecord: AudioRecord? = null
     private var recordingJob: Job? = null
+    private var pitchRampMultiplier = 1.0f
+    private var rampJob: Job? = null
 
     private val batteryReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, intent: Intent) {
@@ -404,6 +441,8 @@ class DeckViewModel(
     init {
         context.registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         engine.setLoop(local.value.playMode == PlayMode.REPEAT)
+        engine.setTapeFlutter(local.value.tapeFlutter == TapeFlutterMode.ON)
+        engine.setSlipMode(local.value.slipMode == SlipMode.ON)
         // Boundary thump when the engine bumps the start or end of a file.
         viewModelScope.launch {
             var prevPlaying = false
@@ -478,6 +517,13 @@ class DeckViewModel(
                 memoQuality = loc.memoQuality,
                 sampleRateMode = loc.sampleRateMode,
                 deviceName = loc.deviceName,
+                playerStyle = loc.playerStyle,
+                tapeFlutter = loc.tapeFlutter,
+                pitchRamp = loc.pitchRamp,
+                slipMode = loc.slipMode,
+                theme = loc.theme,
+                loopStartFrame = loc.loopStartFrame,
+                loopEndFrame = loc.loopEndFrame,
                 diskFreeGb = getDiskFreeGb(),
                 diskUsedGb = getDiskUsedGb(),
                 diskTotalGb = getDiskTotalGb(),
@@ -634,7 +680,29 @@ class DeckViewModel(
     fun onPlay() {
         if (consumeOverlaysForTransport()) return
         val s = engine.state.value
-        if (s.isPlaying) {
+        val isAdvancedRamp = local.value.playerStyle == PlayerStyle.ADVANCED && local.value.pitchRamp == PitchRampMode.ON
+        val isRampingDown = isAdvancedRamp && rampJob?.isActive == true && pitchRampMultiplier < 1.0f && local.value.transport != TransportState.PAUSED_STOP
+
+        if (isRampingDown) {
+            rampJob?.cancel()
+            haptics.play(HapticSpec.Play)
+            // Ramp back up from current multiplier to 1f
+            rampJob = viewModelScope.launch {
+                val startMult = pitchRampMultiplier
+                val durationMs = (300L * (1f - startMult)).toLong().coerceAtLeast(50L)
+                val startTime = System.currentTimeMillis()
+                while (true) {
+                    val elapsed = System.currentTimeMillis() - startTime
+                    val pct = (elapsed.toFloat() / durationMs).coerceIn(0f, 1f)
+                    pitchRampMultiplier = startMult + pct * (1f - startMult)
+                    applySpeed()
+                    if (pct >= 1f) break
+                    delay(16)
+                }
+                pitchRampMultiplier = 1.0f
+                applySpeed()
+            }
+        } else if (s.isPlaying) {
             val nextDir = if (local.value.direction == PlayDirection.FWD)
                 PlayDirection.REV else PlayDirection.FWD
             local.update { it.copy(direction = nextDir, transport = TransportState.PLAYING) }
@@ -646,8 +714,29 @@ class DeckViewModel(
                 it.copy(direction = startDir, transport = TransportState.PLAYING)
             }
             haptics.play(HapticSpec.Play)
-            applySpeed()
-            engine.play()
+            if (isAdvancedRamp) {
+                rampJob?.cancel()
+                pitchRampMultiplier = 0.0f
+                applySpeed()
+                engine.play()
+                rampJob = viewModelScope.launch {
+                    val durationMs = 300L
+                    val startTime = System.currentTimeMillis()
+                    while (true) {
+                        val elapsed = System.currentTimeMillis() - startTime
+                        val pct = (elapsed.toFloat() / durationMs).coerceIn(0f, 1f)
+                        pitchRampMultiplier = pct
+                        applySpeed()
+                        if (pct >= 1f) break
+                        delay(16)
+                    }
+                    pitchRampMultiplier = 1.0f
+                    applySpeed()
+                }
+            } else {
+                applySpeed()
+                engine.play()
+            }
         }
     }
 
@@ -655,10 +744,44 @@ class DeckViewModel(
     fun onStop() {
         if (consumeOverlaysForTransport()) return
         val s = engine.state.value
-        if (s.isPlaying || local.value.transport == TransportState.SCRUBBING) {
+        val isAdvancedRamp = local.value.playerStyle == PlayerStyle.ADVANCED && local.value.pitchRamp == PitchRampMode.ON
+        val isRampingDown = isAdvancedRamp && rampJob?.isActive == true && pitchRampMultiplier < 1.0f && local.value.transport != TransportState.PAUSED_STOP
+
+        if (isRampingDown) {
+            rampJob?.cancel()
+            pitchRampMultiplier = 1.0f
             haptics.play(HapticSpec.Pause)
             engine.pause()
             local.update { it.copy(transport = TransportState.PAUSED_STOP) }
+            applySpeed()
+            return
+        }
+
+        if (s.isPlaying || local.value.transport == TransportState.SCRUBBING) {
+            haptics.play(HapticSpec.Pause)
+            if (isAdvancedRamp && local.value.transport != TransportState.SCRUBBING) {
+                rampJob?.cancel()
+                rampJob = viewModelScope.launch {
+                    val startMult = pitchRampMultiplier
+                    val durationMs = 1000L
+                    val startTime = System.currentTimeMillis()
+                    while (true) {
+                        val elapsed = System.currentTimeMillis() - startTime
+                        val pct = (elapsed.toFloat() / durationMs).coerceIn(0f, 1f)
+                        pitchRampMultiplier = startMult * (1f - pct)
+                        applySpeed()
+                        if (pct >= 1f) break
+                        delay(16)
+                    }
+                    engine.pause()
+                    local.update { it.copy(transport = TransportState.PAUSED_STOP) }
+                    pitchRampMultiplier = 1.0f
+                    applySpeed()
+                }
+            } else {
+                engine.pause()
+                local.update { it.copy(transport = TransportState.PAUSED_STOP) }
+            }
         } else if (local.value.transport == TransportState.PAUSED_STOP) {
             haptics.play(HapticSpec.Pause)
             engine.stop()
@@ -842,7 +965,7 @@ class DeckViewModel(
                     val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
                     val dir = File(musicDir, "TinyDJ/samples")
                     if (!dir.exists()) dir.mkdirs()
-                    val extension = if (local.value.memoQuality == MemoQuality.HI_Q) "wav" else "mp3"
+                    val extension = "wav"
                     val sampleFile = File(dir, "SAMPLE_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.$extension")
                     
                     FileOutputStream(sampleFile).use { finalOut ->
@@ -999,7 +1122,7 @@ class DeckViewModel(
                     val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
                     val dir = File(musicDir, "TinyDJ/memos")
                     if (!dir.exists()) dir.mkdirs()
-                    val extension = if (local.value.memoQuality == MemoQuality.HI_Q) "wav" else "mp3"
+                    val extension = "wav"
                     val memoFile = File(dir, "MEMO_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.$extension")
                     
                     FileOutputStream(memoFile).use { finalOut ->
@@ -1155,10 +1278,10 @@ class DeckViewModel(
         applySpeed()
     }
 
-    /** Effective signed engine rate = direction × (1 + varispeed/100), clamped 0.5..3.0. */
+    /** Effective signed engine rate = direction × (1 + varispeed/100), clamped 0.01..3.0. */
     private fun applySpeed() {
         val loc = local.value
-        val mag = (1f + loc.varispeed / 100f).coerceIn(0.5f, 3.0f)
+        val mag = (1f + loc.varispeed / 100f).coerceIn(0.01f, 3.0f) * pitchRampMultiplier
         engine.setSpeed(if (loc.direction == PlayDirection.REV) -mag else mag)
     }
 
@@ -1184,7 +1307,12 @@ class DeckViewModel(
         }
         if (nextIdx == curIdx) return
         local.update {
-            it.copy(direction = PlayDirection.FWD, transport = TransportState.STOPPED_AT_START)
+            it.copy(
+                direction = PlayDirection.FWD,
+                transport = TransportState.STOPPED_AT_START,
+                loopStartFrame = null,
+                loopEndFrame = null
+            )
         }
         engine.load(tracks[nextIdx])
     }
@@ -1235,11 +1363,17 @@ class DeckViewModel(
 
     fun onReelGrab() {
         reelHeld = true
+        scrubHapticAccum = 0f
         lastRotateTimeNs = System.nanoTime()
         val loc = local.value
         if (loc.menuOpen || loc.settingOpen || loc.varispeedOpen || loc.deleteOpen) {
             haptics.play(HapticSpec.ReelGrab)
             return
+        }
+        if (rampJob?.isActive == true) {
+            rampJob?.cancel()
+            pitchRampMultiplier = 1.0f
+            applySpeed()
         }
         wasPlayingBeforeScrub = engine.state.value.isPlaying
         // MOTOR off → finger still registers (for menu/pause) but does not scrub audio.
@@ -1319,7 +1453,12 @@ class DeckViewModel(
 
         engine.setScrubSpeed(speed)
         // Free-scrub rim detents: rate-limited (HapticThrottler coalesces the smear).
-        haptics.play(HapticSpec.Detent(abs(speed).coerceIn(0f, 1f)))
+        scrubHapticAccum += delta
+        if (scrubHapticAccum >= SCRUB_DETENT_STEP_DEG) {
+            val steps = (scrubHapticAccum / SCRUB_DETENT_STEP_DEG).toInt()
+            scrubHapticAccum -= steps * SCRUB_DETENT_STEP_DEG
+            haptics.play(HapticSpec.Detent(abs(speed).coerceIn(0f, 1f)))
+        }
         idleScrubJob?.cancel()
         idleScrubJob = viewModelScope.launch {
             delay(150)                              // idle → fall back to prior state
@@ -1340,6 +1479,7 @@ class DeckViewModel(
 
     fun onReelRelease() {
         reelHeld = false
+        scrubHapticAccum = 0f
         haptics.play(HapticSpec.ReelRelease)
         // Inside menu/overlay the reel is a dial, not a scrubber — nothing to end.
         val loc = local.value
@@ -1474,7 +1614,12 @@ class DeckViewModel(
             when (item) {
                 MenuItem.EDIT -> saveSetting("editMode", next.editMode)
                 MenuItem.PLAY -> saveSetting("playMode", next.playMode)
-                MenuItem.LEDS -> saveSetting("leds", next.leds)
+                MenuItem.LEDS -> {
+                    saveSetting("leds", next.leds)
+                    saveSetting("tapeFlutter", next.tapeFlutter)
+                    saveSetting("pitchRamp", next.pitchRamp)
+                    saveSetting("slipMode", next.slipMode)
+                }
                 MenuItem.VIB -> saveSetting("vibrationStrength", next.vibrationStrength)
                 MenuItem.SPK -> saveSetting("spk", next.spk)
                 MenuItem.SFX -> saveSetting("sfx", next.sfx)
@@ -1503,7 +1648,29 @@ class DeckViewModel(
                 engine.setLoop(m == PlayMode.REPEAT)       // functional: track-end behavior
                 loc.copy(playMode = m)
             }
-            MenuItem.LEDS -> loc.copy(leds = step(loc.leds, LedBrightness.entries.toTypedArray()))
+            MenuItem.LEDS -> {
+                if (loc.playerStyle == PlayerStyle.ADVANCED) {
+                    when (loc.settingFieldIndex) {
+                        0 -> loc.copy(leds = step(loc.leds, LedBrightness.entries.toTypedArray()))
+                        1 -> {
+                            val nextMode = step(loc.tapeFlutter, TapeFlutterMode.entries.toTypedArray())
+                            engine.setTapeFlutter(nextMode == TapeFlutterMode.ON)
+                            loc.copy(tapeFlutter = nextMode)
+                        }
+                        2 -> {
+                            val nextRamp = step(loc.pitchRamp, PitchRampMode.entries.toTypedArray())
+                            loc.copy(pitchRamp = nextRamp)
+                        }
+                        else -> {
+                            val nextSlip = step(loc.slipMode, SlipMode.entries.toTypedArray())
+                            engine.setSlipMode(nextSlip == SlipMode.ON)
+                            loc.copy(slipMode = nextSlip)
+                        }
+                    }
+                } else {
+                    loc.copy(leds = step(loc.leds, LedBrightness.entries.toTypedArray()))
+                }
+            }
             MenuItem.VIB -> {
                 val nextVal = (loc.vibrationStrength + if (up) 0.1f else -0.1f).coerceIn(0f, 1f)
                 val rounded = (nextVal * 10f).roundToInt() / 10f
@@ -1536,6 +1703,7 @@ class DeckViewModel(
             MenuItem.NAME -> 4
             MenuItem.TIME -> 2
             MenuItem.DATE -> 3
+            MenuItem.LEDS -> if (loc.playerStyle == PlayerStyle.ADVANCED) 4 else 1
             else -> 1
         }
         haptics.play(HapticSpec.ButtonPress)
@@ -1637,7 +1805,9 @@ class DeckViewModel(
             it.copy(
                 direction = PlayDirection.FWD,
                 transport = TransportState.STOPPED_AT_START,
-                appMode = AppMode.LIBRARY
+                appMode = AppMode.LIBRARY,
+                loopStartFrame = null,
+                loopEndFrame = null
             )
         }
         engine.load(track)
@@ -1709,6 +1879,111 @@ class DeckViewModel(
         val limited = name.take(8)
         local.update { it.copy(deviceName = limited) }
         saveSetting("deviceName", limited)
+    }
+
+    fun setPlayerStyle(style: PlayerStyle) {
+        local.update { it.copy(playerStyle = style) }
+        saveSetting("playerStyle", style)
+        if (style == PlayerStyle.ORIGINAL) {
+            engine.setTapeFlutter(false)
+            engine.setSlipMode(false)
+        } else {
+            engine.setTapeFlutter(local.value.tapeFlutter == TapeFlutterMode.ON)
+            engine.setSlipMode(local.value.slipMode == SlipMode.ON)
+        }
+    }
+
+    fun setTapeFlutter(mode: TapeFlutterMode) {
+        local.update { it.copy(tapeFlutter = mode) }
+        saveSetting("tapeFlutter", mode)
+        if (local.value.playerStyle == PlayerStyle.ADVANCED) {
+            engine.setTapeFlutter(mode == TapeFlutterMode.ON)
+        }
+    }
+
+    fun setSlipMode(mode: SlipMode) {
+        local.update { it.copy(slipMode = mode) }
+        saveSetting("slipMode", mode)
+        if (local.value.playerStyle == PlayerStyle.ADVANCED) {
+            engine.setSlipMode(mode == SlipMode.ON)
+        }
+    }
+
+    fun setPitchRamp(mode: PitchRampMode) {
+        local.update { it.copy(pitchRamp = mode) }
+        saveSetting("pitchRamp", mode)
+    }
+    fun setTheme(theme: AppTheme) {
+        local.update { it.copy(theme = theme) }
+        saveSetting("theme", theme)
+        CurrentTheme.currentTheme = theme
+    }
+
+    fun onTapA() {
+        if (!local.value.powered) return
+        haptics.cancel()
+        val s = engine.state.value
+        if (s.trackId == null) return
+        
+        val currentFrame = s.positionFrames
+        local.update {
+            it.copy(
+                loopStartFrame = currentFrame,
+                loopEndFrame = null
+            )
+        }
+        engine.setLoopPoints(-1, -1)
+        haptics.play(HapticSpec.ButtonPress)
+    }
+
+    fun onHoldA() {
+        if (!local.value.powered) return
+        haptics.cancel()
+        if (local.value.loopStartFrame == null && local.value.loopEndFrame == null) return
+
+        local.update {
+            it.copy(
+                loopStartFrame = null,
+                loopEndFrame = null
+            )
+        }
+        engine.setLoopPoints(-1, -1)
+        haptics.play(HapticSpec.ModeToggle)
+    }
+
+    fun onTapB() {
+        if (!local.value.powered) return
+        val s = engine.state.value
+        if (s.trackId == null) return
+
+        val start = local.value.loopStartFrame ?: return
+        val currentFrame = s.positionFrames
+
+        val loopStart = Math.min(start, currentFrame)
+        var loopEnd = Math.max(start, currentFrame)
+        if (loopEnd - loopStart < 48L) {
+            loopEnd = loopStart + 48L
+        }
+
+        local.update {
+            it.copy(
+                loopStartFrame = loopStart,
+                loopEndFrame = loopEnd
+            )
+        }
+        engine.setLoopPoints(loopStart, loopEnd)
+        haptics.play(HapticSpec.ButtonPress)
+    }
+
+    fun onPressA() {
+        if (!local.value.powered) return
+        val s = engine.state.value
+        if (s.trackId == null) return
+        haptics.play(HapticSpec.HoldVibrate)
+    }
+
+    fun onCancelVibrate() {
+        haptics.cancel()
     }
 
     // =================================================================================
@@ -1922,12 +2197,10 @@ class DeckViewModel(
 
     override fun onCleared() {
         runCatching { context.unregisterReceiver(batteryReceiver) }
-        haptics.shutdown()
-        engine.release()
     }
 
     companion object {
-        private const val VARISPEED_MIN = -50
+        private const val VARISPEED_MIN = -99
         private const val VARISPEED_MAX = 200
         private const val SPEED_UNITS_PER_PX = 0.18f   // drag → percent units
         private const val SCRUB_GAIN = 0.02f           // drag → reel speed
@@ -1935,6 +2208,7 @@ class DeckViewModel(
         private const val MENU_STEP_DEG = 15f
         private const val SETTING_STEP_DEG = 15f
         private const val DELETE_STEP_DEG = 15f
+        private const val SCRUB_DETENT_STEP_DEG = 5f
 
         fun factory(container: AppContainer) = viewModelFactory {
             initializer {

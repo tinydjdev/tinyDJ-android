@@ -14,64 +14,64 @@ import androidx.compose.ui.graphics.Color
  */
 object Metal {
     // Body / chassis (cream/beige paper).
-    val body = Color(0xFFF2F1EC)
-    val bodyLight = Color(0xFFF2F1EC)
-    val bodyDark = Color(0xFFF2F1EC)
-    val edgeHi = Color(0xFF2E2E2C)
-    val edgeLo = Color(0xFF2E2E2C)
-    val seam = Color(0xFF2E2E2C)
-    val recess = Color(0xFFF2F1EC)
-    val recessShadow = Color(0xFF2E2E2C)
+    val body: Color get() = Body
+    val bodyLight: Color get() = Body
+    val bodyDark: Color get() = Body
+    val edgeHi: Color get() = Ink
+    val edgeLo: Color get() = Ink
+    val seam: Color get() = Ink
+    val recess: Color get() = Body
+    val recessShadow: Color get() = Ink
 
     // Reel disc (cream/beige paper).
-    val disc = Color(0xFFF2F1EC)
-    val discLight = Color(0xFFF2F1EC)
-    val discDark = Color(0xFFF2F1EC)
-    val discGroove = Color(0xFF2E2E2C)
-    val hairline = Color(0xFF2E2E2C)
-    val microText = Color(0xFF2E2E2C)
+    val disc: Color get() = Body
+    val discLight: Color get() = Body
+    val discDark: Color get() = Body
+    val discGroove: Color get() = Ink
+    val hairline: Color get() = Ink
+    val microText: Color get() = Ink
 
     // Spindle plate (cream/beige paper) + dimples.
-    val spindle = Color(0xFFF2F1EC)
-    val spindleDimple = Color(0xFF2E2E2C)
+    val spindle: Color get() = Body
+    val spindleDimple: Color get() = Ink
 
     // Keys / buttons.
-    val key = Color(0xFFF2F1EC)
-    val keyLight = Color(0xFFF2F1EC)
-    val keyDark = Color(0xFFF2F1EC)
-    val keyInk = Color(0xFF2E2E2C)
+    val key: Color get() = Body
+    val keyLight: Color get() = Body
+    val keyDark: Color get() = Body
+    val keyInk: Color get() = Ink
 
     // Knurled crown.
-    val knurl = Color(0xFFF2F1EC)
-    val knurlLight = Color(0xFFF2F1EC)
-    val knurlDark = Color(0xFF2E2E2C)
+    val knurl: Color get() = Body
+    val knurlLight: Color get() = Body
+    val knurlDark: Color get() = Ink
 
     // Accent.
-    val accent = Color(0xFF2E2E2C)
-    val accentDim = Color(0xFF2E2E2C)
-    val accentInk = Color(0xFFF2F1EC)
+    val accent: Color get() = Ink
+    val accentDim: Color get() = Ink
+    val accentInk: Color get() = Body
 
     // Etched wordmark + engraved spec text.
-    val wordmark = Color(0xFF2E2E2C)
+    val wordmark: Color get() = Ink
 
     // Monochrome OLED.
-    val lcdBg = Color(0xFF2E2E2C)
-    val lcdBezel = Color(0xFF2E2E2C)
-    val lcdOn = Color(0xFFF2F1EC)
-    val lcdDim = Color(0xFF383836)
-    val lcdBox = Color(0xFFF2F1EC)
+    val lcdBg: Color get() = OledOffColor
+    val lcdBezel: Color get() = Ink
+    val lcdOn: Color get() = OledOnColor
+    val lcdDim: Color get() = OledOffColor
+    val lcdBox: Color get() = OledOnColor
 
     // Status LED.
-    val ledRest = Color(0xFF2E2E2C)
-    val ledRed = Color(0xFF2E2E2C)
-    val ledWhite = Color(0xFF2E2E2C)
+    val ledRest: Color get() = Ink
+    val ledRed: Color get() = Ink
+    val ledWhite: Color get() = Ink
 
     // VU meters.
-    val vuOff = Color(0xFFF2F1EC)
-    val vuOn = Color(0xFF2E2E2C)
-    val vuPeak = Color(0xFF2E2E2C)
+    val vuOff: Color get() = Body
+    val vuOn: Color get() = Ink
+    val vuPeak: Color get() = Ink
 
-    val ink = Color(0xFF2E2E2C)
+    val ink: Color get() = Ink
 }
 
 /** Top-lit brushed-metal fill for vertical surfaces (chassis, keys). */

@@ -114,6 +114,11 @@ fun DeckScreen(vm: DeckViewModel) {
                 vm.onPickTrack(index)
                 showLibrary = false
             },
+            onTapA = vm::onTapA,
+            onHoldA = vm::onHoldA,
+            onTapB = vm::onTapB,
+            onPressA = vm::onPressA,
+            onCancelVibrate = vm::onCancelVibrate,
         )
     }
 

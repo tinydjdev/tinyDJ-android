@@ -73,6 +73,9 @@ interface AudioEngine {
     /** When enabled, playback wraps at the boundary instead of stopping. */
     fun setLoop(enabled: Boolean)
 
+    /** Set start and end frames for loop range. Set both to -1 to disable. */
+    fun setLoopPoints(startFrame: Long, endFrame: Long)
+
     /** Stop transport: pause and rewind to the start. */
     fun stop()
 
@@ -101,4 +104,6 @@ interface AudioEngine {
     fun stopRecording()
     fun pullRecording(buffer: ShortArray): Int
     fun getDeviceRate(): Int
+    fun setTapeFlutter(enabled: Boolean)
+    fun setSlipMode(enabled: Boolean)
 }

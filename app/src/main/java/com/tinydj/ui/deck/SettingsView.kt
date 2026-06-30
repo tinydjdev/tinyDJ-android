@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tinydj.ui.theme.Body
 import com.tinydj.ui.theme.Ink
+import com.tinydj.ui.theme.AppTheme
 import kotlin.math.roundToInt
 
 @Composable
@@ -179,6 +180,43 @@ fun SettingsView(
             options = EditMode.values(),
             onSelected = { vm.setEditMode(it) }
         )
+
+        SettingEnumRow(
+            label = "PLAYER VIEW",
+            currentValue = state.playerStyle,
+            options = PlayerStyle.values(),
+            onSelected = { vm.setPlayerStyle(it) }
+        )
+
+        if (state.playerStyle == PlayerStyle.ADVANCED) {
+            SettingEnumRow(
+                label = "TAPE FLUTTER",
+                currentValue = state.tapeFlutter,
+                options = TapeFlutterMode.values(),
+                onSelected = { vm.setTapeFlutter(it) }
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            SettingEnumRow(
+                label = "PITCH RAMPS",
+                currentValue = state.pitchRamp,
+                options = PitchRampMode.values(),
+                onSelected = { vm.setPitchRamp(it) }
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            SettingEnumRow(
+                label = "SLIP MODE",
+                currentValue = state.slipMode,
+                options = SlipMode.values(),
+                onSelected = { vm.setSlipMode(it) }
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            SettingEnumRow(
+                label = "THEME",
+                currentValue = state.theme,
+                options = AppTheme.values(),
+                onSelected = { vm.setTheme(it) }
+            )
+        }
 
         Spacer(modifier = Modifier.height(24.dp))
 

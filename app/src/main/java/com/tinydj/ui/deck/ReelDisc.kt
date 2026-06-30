@@ -83,41 +83,57 @@ fun ReelDisc(
     val onRotateState = rememberUpdatedState(onRotate)
     val onHoldStartState = rememberUpdatedState(onHoldStart)
     val onHoldEndState = rememberUpdatedState(onHoldEnd)
+    val currentRotationDeg by rememberUpdatedState(rotationDeg)
 
     val gesture = Modifier.pointerInput(Unit) {
-        val center = Offset(size.width / 2f, size.height / 2f)
         awaitEachGesture {
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val radius = minOf(size.width, size.height) / 2f
+            val discR = radius * 0.93f
+
             val down = awaitFirstDown(requireUnconsumed = false)
-            dragging = true
-            dragAngle = rotationDeg
-            onHoldStartState.value()                       // grab: VM begins scrub / hold-pause
-            var prevA = atan2(
-                (down.position.y - center.y).toDouble(),
-                (down.position.x - center.x).toDouble(),
-            )
-            while (true) {
-                val event = awaitPointerEvent()
-                val ch = event.changes.firstOrNull() ?: break
-                if (!ch.pressed) break
-                val a = atan2(
-                    (ch.position.y - center.y).toDouble(),
-                    (ch.position.x - center.x).toDouble(),
-                )
-                var dA = a - prevA
-                if (dA > PI) dA -= 2 * PI
-                if (dA < -PI) dA += 2 * PI
-                val dDeg = Math.toDegrees(dA).toFloat()
-                if (dDeg != 0f) {
-                    dragAngle += dDeg
-                    // Raw movement only: sign + magnitude. The VM converts this to discrete
-                    // units (scrub speed / value steps) and fires the per-unit ticks.
-                    onRotateState.value(dDeg > 0f, abs(dDeg))
+            val dx = down.position.x - center.x
+            val dy = down.position.y - center.y
+            val isInside = (dx * dx + dy * dy) <= discR * discR
+
+            if (!isInside) {
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val ch = event.changes.firstOrNull() ?: break
+                    if (!ch.pressed) break
                 }
-                prevA = a
-                ch.consume()
+            } else {
+                dragging = true
+                dragAngle = currentRotationDeg
+                onHoldStartState.value()                       // grab: VM begins scrub / hold-pause
+                var prevA = atan2(
+                    (down.position.y - center.y).toDouble(),
+                    (down.position.x - center.x).toDouble(),
+                )
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val ch = event.changes.firstOrNull() ?: break
+                    if (!ch.pressed) break
+                    val a = atan2(
+                        (ch.position.y - center.y).toDouble(),
+                        (ch.position.x - center.x).toDouble(),
+                    )
+                    var dA = a - prevA
+                    if (dA > PI) dA -= 2 * PI
+                    if (dA < -PI) dA += 2 * PI
+                    val dDeg = Math.toDegrees(dA).toFloat()
+                    if (dDeg != 0f) {
+                        dragAngle += dDeg
+                        // Raw movement only: sign + magnitude. The VM converts this to discrete
+                        // units (scrub speed / value steps) and fires the per-unit ticks.
+                        onRotateState.value(dDeg > 0f, abs(dDeg))
+                    }
+                    prevA = a
+                    ch.consume()
+                }
+                dragging = false
+                onHoldEndState.value()                         // lift: VM ends scrub / resumes
             }
-            dragging = false
-            onHoldEndState.value()                         // lift: VM ends scrub / resumes
         }
     }
 

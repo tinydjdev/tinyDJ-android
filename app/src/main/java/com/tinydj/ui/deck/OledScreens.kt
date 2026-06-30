@@ -123,17 +123,25 @@ fun OledPlayback(state: DeckUiState, modifier: Modifier = Modifier) {
     } else {
         0
     }
-    val labelWidth = label.length * 6 - 1
-    val labelAreaWidth = if (hasBox) COLS - boxWidth - 3 else COLS - 4
-    val maxScroll = (labelWidth - labelAreaWidth).coerceAtLeast(0)
+    val loopIndicator = when {
+        state.loopStartFrame != null && state.loopEndFrame != null -> "A-B"
+        state.loopStartFrame != null -> "A"
+        else -> ""
+    }
+    val indWidth = if (loopIndicator.isNotEmpty()) loopIndicator.length * 6 - 1 else 0
+    val extraOffset = if (indWidth > 0) indWidth + 3 else 0
 
+    val labelWidth = label.length * 6 - 1
+    val labelAreaWidth = if (hasBox) COLS - boxWidth - 3 - extraOffset else COLS - 4 - extraOffset
+    val maxScroll = (labelWidth - labelAreaWidth).coerceAtLeast(0)
+ 
     val progress = if (maxScroll > 0) {
         val tStart = 1500
         val tScroll = maxScroll * 100
         val tEnd = 1500
         val tReset = 500
         val totalDuration = tStart + tScroll + tEnd + tReset
-
+ 
         val transition = rememberInfiniteTransition(label = "trackNameScroll")
         transition.animateFloat(
             initialValue = 0f,
@@ -147,18 +155,18 @@ fun OledPlayback(state: DeckUiState, modifier: Modifier = Modifier) {
     } else {
         0f
     }
-
+ 
     Oled(modifier) {
         // --- value line: BIG timecode ---
         val tc = timecode(state.positionMs)
-        text(2, 6, tc, Font.BIG)
-
+        drawRollingTimecode(state.positionMs, 2, 6)
+ 
         // reverse direction caret after the timecode (small)
         if (state.reversed) {
             val cx = 2 + textWidth(tc, Font.BIG) + 3
             stamp3(cx, 9, listOf("..#", ".##", "###", ".##", "..#"))
         }
-
+ 
         // --- bottom-left SMALL label ---
         val scrollOffset = if (maxScroll > 0) {
             val tStart = 1500f
@@ -182,11 +190,30 @@ fun OledPlayback(state: DeckUiState, modifier: Modifier = Modifier) {
         } else {
             0f
         }
+ 
+        val labelRightBound = if (loopIndicator.isNotEmpty()) {
+            val box = "%02d".format(state.trackNumber.coerceIn(0, 99))
+            val bw = textWidth(box, Font.SMALL) + 4
+            val bx = if (hasBox) COLS - bw - 1 else COLS - 1
+            bx - indWidth - 5
+        } else if (hasBox) {
+            COLS - boxWidth - 1
+        } else {
+            COLS - 1
+        }
 
-        setClipX(2, if (hasBox) COLS - boxWidth - 1 else COLS - 1)
+        setClipX(2, labelRightBound)
         text(2 - scrollOffset.toInt(), ROWS - 9, label, Font.SMALL)
         clearClipX()
 
+        // --- loop indicator to the left of the file box ---
+        if (loopIndicator.isNotEmpty()) {
+            val box = "%02d".format(state.trackNumber.coerceIn(0, 99))
+            val bw = textWidth(box, Font.SMALL) + 4
+            val bx = if (hasBox) COLS - bw - 1 else COLS - 1
+            text(bx - indWidth - 3, ROWS - 9, loopIndicator, Font.SMALL)
+        }
+ 
         // --- bottom-right inverted 2-digit file box ---
         if (hasBox) {
             val box = "%02d".format(state.trackNumber.coerceIn(0, 99))
@@ -296,18 +323,39 @@ fun OledUpgrade(state: DeckUiState, modifier: Modifier = Modifier) {
 // =====================================================================================
 
 /**
- * The varispeed editor: BIG signed value centered above (`0` default, `-50` min, `+200` max) and a
+ * The varispeed editor: BIG signed value centered above (`0` default, `-99` min, `+200` max) and a
  * horizontal tick ruler below with a deeper center notch marking the 0 detent.
  */
 @Composable
 fun OledVarispeed(state: DeckUiState, modifier: Modifier = Modifier) {
     Oled(modifier) {
-        val v = state.varispeed.coerceIn(-50, 200)
+        val v = state.varispeed.coerceIn(-99, 200)
         val label = if (v > 0) "+$v" else v.toString()
         text(centerX(label, Font.BIG), 6, label, Font.BIG)
         // ruler baseline near the bottom; ticks rise above it.
         val rw = 56
-        ruler((COLS - rw) / 2, ROWS - 8, rw, majorEvery = 5)
+        val rx = (COLS - rw) / 2
+        ruler(rx, ROWS - 8, rw, majorEvery = 5)
+
+        // Draw animated slider indicator (upward pointing triangle below baseline)
+        val cx = rx + rw / 2
+        val sliderX = if (v < 0) {
+            val pct = v.toFloat() / -99f
+            cx - (pct * (rw / 2)).toInt()
+        } else {
+            val pct = v.toFloat() / 200f
+            cx + (pct * (rw / 2)).toInt()
+        }
+        val py = ROWS - 7 // y = 25
+        set(sliderX, py, true)
+        set(sliderX - 1, py + 1, true)
+        set(sliderX, py + 1, true)
+        set(sliderX + 1, py + 1, true)
+        set(sliderX - 2, py + 2, true)
+        set(sliderX - 1, py + 2, true)
+        set(sliderX, py + 2, true)
+        set(sliderX + 1, py + 2, true)
+        set(sliderX + 2, py + 2, true)
     }
 }
 
@@ -415,7 +463,7 @@ fun OledEditProp(state: DeckUiState, modifier: Modifier = Modifier) {
             textCentered(12, "EDIT OFF", Font.SMALL)
             return@Oled
         }
-        text(2, 4, timecode(state.positionMs), Font.BIG)
+        drawRollingTimecode(state.positionMs, 2, 4)
         text(2, ROWS - 9, "EDIT", Font.SMALL)
         val tr = "3 TR"
         text(COLS - textWidth(tr, Font.SMALL) - 1, ROWS - 9, tr, Font.SMALL)
@@ -539,4 +587,100 @@ private fun monthDay(date: String): String {
         return "%s%02d".format(months[mm - 1], dd)
     }
     return date.uppercase().take(5)
+}
+
+private fun floorMod(a: Long, b: Long): Long {
+    val r = a % b
+    return if (r < 0) r + b else r
+}
+
+private fun PixelCanvas.drawRollingTimecode(positionMs: Long, x: Int, y: Int) {
+    val T = positionMs / 1000.0
+    val T_floor = kotlin.math.floor(T)
+    val f_S1 = T - T_floor
+    val seconds = T_floor.toLong()
+
+    val d_S1 = floorMod(seconds, 10).toInt()
+    val d_S10 = floorMod(seconds / 10, 6).toInt()
+    val d_M1 = floorMod(seconds / 60, 10).toInt()
+    val d_M10 = floorMod(seconds / 600, 6).toInt()
+    val d_H1 = floorMod(seconds / 3600, 10).toInt()
+    val d_H10 = floorMod(seconds / 36000, 10).toInt()
+
+    fun getDigitValAndFrac(index: Int): Pair<Int, Double> {
+        val d = when (index) {
+            0 -> d_S1
+            1 -> d_S10
+            2 -> d_M1
+            3 -> d_M10
+            4 -> d_H1
+            5 -> d_H10
+            else -> 0
+        }
+        val rolls = when (index) {
+            0 -> true
+            1 -> d_S1 == 9
+            2 -> d_S1 == 9 && d_S10 == 5
+            3 -> d_S1 == 9 && d_S10 == 5 && d_M1 == 9
+            4 -> d_S1 == 9 && d_S10 == 5 && d_M1 == 9 && d_M10 == 5
+            5 -> d_S1 == 9 && d_S10 == 5 && d_M1 == 9 && d_M10 == 5 && d_H1 == 9
+            else -> false
+        }
+        val frac = if (rolls) f_S1 else 0.0
+        return Pair(d, frac)
+    }
+
+    fun getDigitChars(index: Int, currentVal: Int): Pair<Char, Char> {
+        val base = when (index) {
+            0 -> 10
+            1 -> 6
+            2 -> 10
+            3 -> 6
+            4 -> 10
+            5 -> 10
+            else -> 10
+        }
+        val nextVal = (currentVal + 1) % base
+        return Pair('0' + currentVal, '0' + nextVal)
+    }
+
+    val sVal = (positionMs / 1000).coerceAtLeast(0)
+    val tc = "%d.%02d.%02d".format(sVal / 3600, (sVal % 3600) / 60, sVal % 60)
+
+    var cx = x
+    val charH = 10
+    val advance = 8
+
+    for (charIndex in tc.indices) {
+        val ch = tc[charIndex]
+        val dist = tc.length - 1 - charIndex
+        val digitIndex = when (dist) {
+            0 -> 0 // S1
+            1 -> 1 // S10
+            2 -> null // '.'
+            3 -> 2 // M1
+            4 -> 3 // M10
+            5 -> null // '.'
+            else -> dist - 2 // H1, H10
+        }
+
+        if (digitIndex != null) {
+            val (currentVal, frac) = getDigitValAndFrac(digitIndex)
+            val (currentChar, nextChar) = getDigitChars(digitIndex, currentVal)
+
+            setClipY(y, y + charH)
+            val yOffset = (frac * charH).toInt()
+            val yCurrent = y + yOffset
+            val yNext = y - (charH - yOffset)
+
+            text(cx, yCurrent, currentChar.toString(), Font.BIG)
+            if (frac > 0.0) {
+                text(cx, yNext, nextChar.toString(), Font.BIG)
+            }
+            clearClipY()
+        } else {
+            text(cx, y, ch.toString(), Font.BIG)
+        }
+        cx += advance
+    }
 }

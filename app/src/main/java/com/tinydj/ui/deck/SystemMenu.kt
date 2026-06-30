@@ -221,6 +221,16 @@ fun SettingPage(state: DeckUiState, modifier: Modifier = Modifier) {
             MenuItem.BATT -> drawBattValue(state, valueTop)
             MenuItem.VER -> drawCentered(state.firmwareVersion, Font.BIG, valueTop)
             MenuItem.VIB -> drawVibration(state, valueTop)
+            MenuItem.LEDS -> {
+                if (state.playerStyle == PlayerStyle.ADVANCED) {
+                    drawLeds(state, valueTop)
+                } else {
+                    val v = settingValueText(item, state)
+                    val big = textWidth(v, Font.BIG)
+                    if (big <= cols - 2) drawCentered(v, Font.BIG, valueTop)
+                    else drawCentered(v, Font.SMALL, valueTop + 2)
+                }
+            }
             else -> {
                 // Single enum value: centred. Use BIG for short tokens, SMALL when too wide.
                 val v = settingValueText(item, state)
@@ -386,4 +396,50 @@ private fun PixelCanvas.drawVibration(state: DeckUiState, top: Int) {
     if (fillW > 0) {
         fillRect(barX, barY, fillW, barH, lit = true)
     }
+}
+
+/** LEDS dual setting: brightness (LOW/MED/HIGH) + tape flutter (OFF/ON) + pitch ramps (OFF/ON) + slip mode (OFF/ON) */
+private fun PixelCanvas.drawLeds(state: DeckUiState, top: Int) {
+    val active = state.settingFieldIndex.coerceIn(0, 3)
+    val ledText = when (state.leds) {
+        LedBrightness.LOW -> "LOW"
+        LedBrightness.MEDIUM -> "MED"
+        LedBrightness.HIGH -> "HIGH"
+    }
+    val flutterText = when (state.tapeFlutter) {
+        TapeFlutterMode.OFF -> "OFF"
+        TapeFlutterMode.ON -> "ON"
+    }
+    val rampText = when (state.pitchRamp) {
+        PitchRampMode.OFF -> "OFF"
+        PitchRampMode.ON -> "ON"
+    }
+    val slipText = when (state.slipMode) {
+        SlipMode.OFF -> "OFF"
+        SlipMode.ON -> "ON"
+    }
+    
+    // Row 1 (y = 18): L: [value] and F: [value]
+    val y1 = top
+    var x = 2
+    text(x, y1, "L:", Font.SMALL, lit = true)
+    x += textWidth("L:", Font.SMALL)
+    x = drawField(x, y1, ledText, Font.SMALL, inverted = active == 0)
+
+    x = 34
+    text(x, y1, "F:", Font.SMALL, lit = true)
+    x += textWidth("F:", Font.SMALL)
+    drawField(x, y1, flutterText, Font.SMALL, inverted = active == 1)
+
+    // Row 2 (y = 25): R: [value] and S: [value]
+    val y2 = top + 7
+    x = 2
+    text(x, y2, "R:", Font.SMALL, lit = true)
+    x += textWidth("R:", Font.SMALL)
+    x = drawField(x, y2, rampText, Font.SMALL, inverted = active == 2)
+
+    x = 34
+    text(x, y2, "S:", Font.SMALL, lit = true)
+    x += textWidth("S:", Font.SMALL)
+    drawField(x, y2, slipText, Font.SMALL, inverted = active == 3)
 }

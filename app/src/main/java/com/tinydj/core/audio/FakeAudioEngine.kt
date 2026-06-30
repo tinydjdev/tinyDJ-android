@@ -61,6 +61,7 @@ class FakeAudioEngine(
     override fun setSpeed(speed: Float) = _state.update { it.copy(speed = speed) }
     override fun setVolume(volume: Float) = _state.update { it.copy(volume = volume.coerceIn(0f, 1f)) }
     override fun setLoop(enabled: Boolean) = _state.update { it.copy(loop = enabled) }
+    override fun setLoopPoints(startFrame: Long, endFrame: Long) {}
     override fun stop() = _state.update { it.copy(isPlaying = false, positionFrames = 0) }
     override fun beginScrub() = _state.update { it.copy(isScrubbing = true, speed = 0f) }
     override fun setScrubSpeed(speed: Float) = _state.update { it.copy(speed = speed) }
@@ -84,4 +85,6 @@ class FakeAudioEngine(
         return buffer.size
     }
     override fun getDeviceRate(): Int = 48000
+    override fun setTapeFlutter(enabled: Boolean) {}
+    override fun setSlipMode(enabled: Boolean) {}
 }

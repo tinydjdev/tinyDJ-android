@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tinydj.ui.theme.Metal
 import com.tinydj.ui.theme.brushedVertical
+import com.tinydj.ui.theme.BackdropColor
 
 /**
  * The faithful device face — the integration surface for every owned piece.
@@ -60,7 +61,7 @@ fun DeckContent(state: DeckUiState, actions: DeckActions, modifier: Modifier = M
     Box(
         modifier
             .fillMaxSize()
-            .background(Color(0xFFEFEFE9))
+            .background(BackdropColor)
             .systemBarsPadding(),
     ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -304,6 +305,25 @@ fun DeckContent(state: DeckUiState, actions: DeckActions, modifier: Modifier = M
                     onNext = actions.onNext,
                     modifier = Modifier.fillMaxSize(),
                 )
+            }
+
+            // -- Symmetrical A/B loop buttons on the disc's lower-left shoulder (Advanced mode only) --------
+            if (state.playerStyle == PlayerStyle.ADVANCED) {
+                FacePiece(
+                    cx = fx(0.185f),
+                    cy = fy(0.875f),
+                    width = fw(0.21f),
+                    height = fw(0.21f),
+                ) {
+                    LoopButtons(
+                        onTapA = actions.onTapA,
+                        onHoldA = actions.onHoldA,
+                        onTapB = actions.onTapB,
+                        onPressA = actions.onPressA,
+                        onCancelVibrate = actions.onCancelVibrate,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
 
             // -- 12. The two vertical level meters: aligned vertically at bottom-right. ----

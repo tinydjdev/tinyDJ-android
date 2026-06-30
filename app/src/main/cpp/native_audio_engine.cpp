@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <mutex>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -78,6 +79,10 @@ bool parseWav(const std::vector<uint8_t>& bytes, std::vector<float>& outPcm, uns
         std::memcpy(&chunk, bytes.data() + offset, 8);
         offset += 8;
         
+        if (chunk.size > bytes.size() - offset) {
+            chunk.size = bytes.size() - offset;
+        }
+        
         if (std::memcmp(chunk.id, "fmt ", 4) == 0) {
             if (chunk.size >= 16 && offset + 16 <= bytes.size()) {
                 std::memcpy(&fmt, bytes.data() + offset, 16);
@@ -86,9 +91,6 @@ bool parseWav(const std::vector<uint8_t>& bytes, std::vector<float>& outPcm, uns
             offset += chunk.size;
         } else if (std::memcmp(chunk.id, "data", 4) == 0) {
             dataSize = chunk.size;
-            if (offset + dataSize > bytes.size()) {
-                dataSize = bytes.size() - offset;
-            }
             pData = bytes.data() + offset;
             foundData = true;
             break;
@@ -100,6 +102,9 @@ bool parseWav(const std::vector<uint8_t>& bytes, std::vector<float>& outPcm, uns
     if (!foundFmt || !foundData || !pData) return false;
     if (fmt.audioFormat != 1 && fmt.audioFormat != 3) {
         return false; // Only PCM (1) or Float (3) is supported
+    }
+    if (fmt.numChannels == 0 || fmt.sampleRate == 0) {
+        return false;
     }
     
     outChannels = fmt.numChannels;
@@ -143,9 +148,13 @@ bool parseWav(const std::vector<uint8_t>& bytes, std::vector<float>& outPcm, uns
 
 }  // namespace
 
-class TinyDjEngine : public AudioStreamDataCallback {
+class TinyDjEngine : public AudioStreamDataCallback, public AudioStreamErrorCallback {
 public:
-    bool openStream() {
+    bool openStreamInternal() {
+        if (mStream) {
+            mStream->close();
+            mStream.reset();
+        }
         AudioStreamBuilder b;
         b.setDirection(Direction::Output)
             ->setPerformanceMode(PerformanceMode::LowLatency)
@@ -154,29 +163,67 @@ public:
             ->setChannelCount(2)
             ->setUsage(Usage::Media)
             ->setContentType(ContentType::Music)
-            ->setDataCallback(this);
+            ->setDataCallback(this)
+            ->setErrorCallback(this);
 
         Result r = b.openStream(mStream);
         if (r != Result::OK) {
             LOGE("openStream failed: %s", convertToText(r));
             return false;
         }
-        mDeviceRate = mStream->getSampleRate();
+        mDeviceRate.store(mStream->getSampleRate());
         // Two bursts keeps latency low while staying glitch-resistant.
         mStream->setBufferSizeInFrames(mStream->getFramesPerBurst() * 2);
-        LOGI("stream open: deviceRate=%d, burst=%d", mDeviceRate,
+        LOGI("stream open: deviceRate=%d, burst=%d", mDeviceRate.load(),
              mStream->getFramesPerBurst());
         return true;
     }
 
-    void start() { if (mStream) mStream->requestStart(); }
-    void stop()  { if (mStream) mStream->requestStop(); }
+    bool openStream() {
+        std::lock_guard<std::mutex> lock(mStreamMutex);
+        return openStreamInternal();
+    }
+
+    void start() {
+        std::lock_guard<std::mutex> lock(mStreamMutex);
+        if (mStream) mStream->requestStart();
+    }
+
+    void stop() {
+        std::lock_guard<std::mutex> lock(mStreamMutex);
+        if (mStream) mStream->requestStop();
+    }
 
     void close() {
+        std::lock_guard<std::mutex> lock(mStreamMutex);
         if (mStream) {
             mStream->stop();
             mStream->close();
             mStream.reset();
+        }
+    }
+
+    void onErrorAfterClose(AudioStream* oboeStream, Result error) override {
+        LOGI("onErrorAfterClose: error=%s", convertToText(error));
+        if (error == Result::ErrorDisconnected) {
+            std::lock_guard<std::mutex> lock(mStreamMutex);
+            if (openStreamInternal()) {
+                LOGI("onErrorAfterClose: Stream reopened, restarting...");
+                mStream->requestStart();
+            } else {
+                LOGE("onErrorAfterClose: Reopen failed, scheduling retry in background thread");
+                std::thread([this]() {
+                    usleep(500000); // 500ms
+                    std::lock_guard<std::mutex> retryLock(mStreamMutex);
+                    LOGI("onErrorAfterClose background thread: retrying openStreamInternal");
+                    if (openStreamInternal()) {
+                        mStream->requestStart();
+                        LOGI("onErrorAfterClose background thread: successfully restarted stream");
+                    } else {
+                        LOGE("onErrorAfterClose background thread: retry failed");
+                    }
+                }).detach();
+            }
         }
     }
 
@@ -211,11 +258,18 @@ public:
             totalFrames = n;
         }
 
-        if (!isWav && (decoded == nullptr || totalFrames == 0 || channels == 0)) {
-            LOGE("decode failed (isFlac=%d, ch=%u, rate=%u, frames=%llu)", isFlac,
-                 channels, rate, (unsigned long long)totalFrames);
-            if (decoded) { isFlac ? drflac_free(decoded, nullptr) : drmp3_free(decoded, nullptr); }
-            return -1;
+        if (isWav) {
+            if (totalFrames == 0 || channels == 0) {
+                LOGE("WAV parse failed (ch=%u, rate=%u, frames=%llu)", channels, rate, (unsigned long long)totalFrames);
+                return -1;
+            }
+        } else {
+            if (decoded == nullptr || totalFrames == 0 || channels == 0) {
+                LOGE("decode failed (isFlac=%d, ch=%u, rate=%u, frames=%llu)", isFlac,
+                     channels, rate, (unsigned long long)totalFrames);
+                if (decoded) { isFlac ? drflac_free(decoded, nullptr) : drmp3_free(decoded, nullptr); }
+                return -1;
+            }
         }
 
         // Down/up-mix to stereo interleaved so the callback is always 2-channel.
@@ -242,9 +296,13 @@ public:
             mTotalFrames.store(static_cast<int64_t>(totalFrames));
             mFileRate.store(static_cast<int>(rate));
             mReadFrame.store(0.0);
+            mVirtualReadFrame.store(0.0);
+            mNormalSpeed.store(1.0);
             mSpeed.store(1.0);
             mPlaying.store(false);
             mScrubbing.store(false);
+            mLoopStartFrame.store(-1);
+            mLoopEndFrame.store(-1);
         }
         LOGI("loaded: frames=%lld, fileRate=%d (isFlac=%d)",
              (long long)mTotalFrames.load(), mFileRate.load(), isFlac);
@@ -261,6 +319,13 @@ public:
     void setScrubbing(bool s) { mScrubbing.store(s); }
     void setGain(float g) { mGain.store(g); }
     void setLoop(bool on) { mLoop.store(on); }
+    void setLoopPoints(int64_t start, int64_t end) {
+        mLoopStartFrame.store(start);
+        mLoopEndFrame.store(end);
+    }
+    void setTapeFlutter(bool enabled) { mTapeFlutter.store(enabled); }
+    void setSlipMode(bool enabled) { mSlipEnabled.store(enabled); }
+    void setNormalSpeed(double s) { mNormalSpeed.store(s); }
 
     void seekFrame(int64_t f) {
         const int64_t total = mTotalFrames.load();
@@ -268,6 +333,7 @@ public:
         if (v < 0) v = 0;
         if (total > 1 && v > total - 1) v = total - 1;
         mReadFrame.store(v);
+        mVirtualReadFrame.store(v);
     }
 
     void scrubBy(double deltaFrames) {
@@ -302,7 +368,21 @@ public:
         return mDeviceRate;
     }
 
-    int64_t positionFrames() const { return static_cast<int64_t>(mReadFrame.load()); }
+    int64_t positionFrames() const {
+        if (mSlipEnabled.load() && isSlipping()) {
+            return static_cast<int64_t>(mVirtualReadFrame.load());
+        }
+        return static_cast<int64_t>(mReadFrame.load());
+    }
+
+    bool isSlipping() const {
+        return mPlaying.load() && (
+            mScrubbing.load() ||
+            (mLoopStartFrame.load() != -1 && mLoopEndFrame.load() != -1 && mLoopEndFrame.load() > mLoopStartFrame.load()) ||
+            mSpeed.load() < 0.0
+        );
+    }
+
     float leftLevel() const { return mLeftLevel.load(); }
     float rightLevel() const { return mRightLevel.load(); }
     int64_t totalFrames() const { return mTotalFrames.load(); }
@@ -328,9 +408,6 @@ public:
         double speed = mSpeed.load();
         double pos = mReadFrame.load();
         const float* p = mPcm.data();
-        const double step = moving ? speed * (static_cast<double>(mFileRate.load()) /
-                                              static_cast<double>(mDeviceRate))
-                                   : 0.0;
 
         float leftLevel = mLeftLevel.load();
         float rightLevel = mRightLevel.load();
@@ -339,7 +416,57 @@ public:
             decay = std::exp(-1.0f / (static_cast<float>(mDeviceRate) * 0.15f));
         }
 
+        double devRate = mDeviceRate.load();
+        if (devRate <= 0.0) devRate = 48000.0;
+        const double rateRatio = static_cast<double>(mFileRate.load()) / devRate;
+        const double virtualStep = mPlaying.load() ? mNormalSpeed.load() * rateRatio : 0.0;
+        double virtualPos = mVirtualReadFrame.load();
+        const bool slipEnabled = mSlipEnabled.load();
+
         for (int i = 0; i < numFrames; ++i) {
+            bool isSlipping = slipEnabled && mPlaying.load() && (
+                mScrubbing.load() ||
+                (mLoopStartFrame.load() != -1 && mLoopEndFrame.load() != -1 && mLoopEndFrame.load() > mLoopStartFrame.load()) ||
+                speed < 0.0
+            );
+
+            if (isSlipping) {
+                if (!mWasSlipping) {
+                    virtualPos = pos;
+                    mWasSlipping = true;
+                }
+            } else {
+                if (mWasSlipping) {
+                    pos = virtualPos;
+                    mWasSlipping = false;
+                }
+            }
+
+            double currentSpeed = speed;
+            if (mPlaying.load() && mTapeFlutter.load()) {
+                const double pi2 = 2.0 * 3.141592653589793;
+                double fs = (mDeviceRate.load() > 0) ? static_cast<double>(mDeviceRate.load()) : 48000.0;
+                mTapeFlutterPhaseWow += pi2 * 1.2 / fs;
+                if (mTapeFlutterPhaseWow > pi2) mTapeFlutterPhaseWow -= pi2;
+                mTapeFlutterPhaseFlutter += pi2 * 8.0 / fs;
+                if (mTapeFlutterPhaseFlutter > pi2) mTapeFlutterPhaseFlutter -= pi2;
+                double mod = 0.003 * std::sin(mTapeFlutterPhaseWow) + 0.002 * std::sin(mTapeFlutterPhaseFlutter);
+                currentSpeed += mod;
+            }
+            const double step = moving ? currentSpeed * rateRatio : 0.0;
+
+            if (isSlipping) {
+                virtualPos += virtualStep;
+                if (virtualPos >= total - 1) {
+                    if (loop) {
+                        virtualPos = 0.0;
+                    } else {
+                        virtualPos = total - 1;
+                        mPlaying.store(false);
+                    }
+                }
+            }
+
             if (step == 0.0) {
                 // Transport stopped, or finger holding the reel still: silence,
                 // like a needle resting on a motionless record.
@@ -348,6 +475,17 @@ public:
                 leftLevel *= decay;
                 rightLevel *= decay;
                 continue;
+            }
+
+            const int64_t loopStart = mLoopStartFrame.load();
+            const int64_t loopEnd = mLoopEndFrame.load();
+            if (loopStart != -1 && loopEnd != -1 && loopEnd > loopStart) {
+                double len = static_cast<double>(loopEnd - loopStart);
+                if (pos >= loopEnd && step > 0.0) {
+                    pos = loopStart + std::fmod(pos - loopStart, len);
+                } else if (pos <= loopStart && step < 0.0) {
+                    pos = loopEnd - std::fmod(loopStart - pos, len);
+                }
             }
 
             if (pos <= 0.0 && step < 0.0) {     // hit the start going backwards
@@ -394,6 +532,7 @@ public:
         mLeftLevel.store(leftLevel);
         mRightLevel.store(rightLevel);
         mReadFrame.store(pos);
+        mVirtualReadFrame.store(virtualPos);
 
         if (mRecording.load()) {
             std::lock_guard<std::mutex> recLk(mRecMutex);
@@ -423,13 +562,14 @@ private:
     }
 
     std::shared_ptr<AudioStream> mStream;
+    std::mutex mStreamMutex;       // guards mStream lifecycle
 
     std::mutex mBufMutex;          // guards swap of mPcm
     std::vector<float> mPcm;       // interleaved stereo
     // Atomic so the lock-free JNI getters can't tear a 64-bit read on 32-bit ABIs.
     std::atomic<int64_t> mTotalFrames{0};
     std::atomic<int> mFileRate{48000};
-    int mDeviceRate = 48000;       // set once in openStream(), before any concurrency
+    std::atomic<int> mDeviceRate{48000};
 
     std::atomic<double> mReadFrame{0.0};
     std::atomic<double> mSpeed{1.0};
@@ -437,9 +577,20 @@ private:
     std::atomic<bool> mScrubbing{false};
     std::atomic<float> mGain{1.0f};
     std::atomic<bool> mLoop{false};
+    std::atomic<int64_t> mLoopStartFrame{-1};
+    std::atomic<int64_t> mLoopEndFrame{-1};
 
     std::atomic<float> mLeftLevel{0.0f};
     std::atomic<float> mRightLevel{0.0f};
+
+    std::atomic<bool> mTapeFlutter{false};
+    double mTapeFlutterPhaseWow{0.0};
+    double mTapeFlutterPhaseFlutter{0.0};
+
+    std::atomic<bool> mSlipEnabled{false};
+    std::atomic<double> mVirtualReadFrame{0.0};
+    std::atomic<double> mNormalSpeed{1.0};
+    bool mWasSlipping{false};
 
     std::mutex mRecMutex;
     std::vector<int16_t> mRecBuffer;
@@ -583,6 +734,7 @@ Java_com_tinydj_core_audio_OboeAudioEngine_nativePullRecording(JNIEnv* env, jobj
     
     jsize len = env->GetArrayLength(jArr);
     jshort* body = env->GetShortArrayElements(jArr, nullptr);
+    if (!body) return 0;
     
     int pulled = e->pullRecording(reinterpret_cast<int16_t*>(body), len);
     
@@ -594,6 +746,38 @@ JNIEXPORT jint JNICALL
 Java_com_tinydj_core_audio_OboeAudioEngine_nativeDeviceRate(JNIEnv*, jobject, jlong h) {
     auto* e = reinterpret_cast<TinyDjEngine*>(h);
     return e ? e->getDeviceRate() : 48000;
+}
+
+JNIEXPORT void JNICALL
+Java_com_tinydj_core_audio_OboeAudioEngine_nativeSetLoopPoints(JNIEnv*, jobject, jlong h,
+                                                              jlong start, jlong end) {
+    if (auto* e = reinterpret_cast<TinyDjEngine*>(h)) {
+        e->setLoopPoints(start, end);
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_com_tinydj_core_audio_OboeAudioEngine_nativeSetTapeFlutter(JNIEnv*, jobject, jlong h,
+                                                               jboolean enabled) {
+    if (auto* e = reinterpret_cast<TinyDjEngine*>(h)) {
+        e->setTapeFlutter(enabled == JNI_TRUE);
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_com_tinydj_core_audio_OboeAudioEngine_nativeSetSlipMode(JNIEnv*, jobject, jlong h,
+                                                            jboolean enabled) {
+    if (auto* e = reinterpret_cast<TinyDjEngine*>(h)) {
+        e->setSlipMode(enabled == JNI_TRUE);
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_com_tinydj_core_audio_OboeAudioEngine_nativeSetNormalSpeed(JNIEnv*, jobject, jlong h,
+                                                               jdouble s) {
+    if (auto* e = reinterpret_cast<TinyDjEngine*>(h)) {
+        e->setNormalSpeed(s);
+    }
 }
 
 }  // extern "C"

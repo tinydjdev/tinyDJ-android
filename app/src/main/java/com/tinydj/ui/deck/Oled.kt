@@ -8,6 +8,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import kotlin.math.floor
+import com.tinydj.ui.theme.OledOnColor
+import com.tinydj.ui.theme.OledOffColor
 
 /**
  * The OLED pixel primitive — a real low-res dot-matrix renderer for the device's
@@ -48,6 +50,8 @@ class PixelCanvas(
 ) {
     private var clipXStart: Int = 0
     private var clipXEnd: Int = cols
+    private var clipYStart: Int = 0
+    private var clipYEnd: Int = rows
 
     fun setClipX(start: Int, end: Int) {
         clipXStart = start
@@ -57,6 +61,16 @@ class PixelCanvas(
     fun clearClipX() {
         clipXStart = 0
         clipXEnd = cols
+    }
+
+    fun setClipY(start: Int, end: Int) {
+        clipYStart = start
+        clipYEnd = end
+    }
+
+    fun clearClipY() {
+        clipYStart = 0
+        clipYEnd = rows
     }
 
     /** Paint the whole panel with the off (background) color. */
@@ -72,6 +86,7 @@ class PixelCanvas(
     fun set(x: Int, y: Int, lit: Boolean = true) {
         if (x < 0 || y < 0 || x >= cols || y >= rows) return
         if (x < clipXStart || x >= clipXEnd) return
+        if (y < clipYStart || y >= clipYEnd) return
         scope.drawRect(
             color = if (lit) on else off,
             topLeft = Offset(origin.x + x * px, origin.y + y * px),
@@ -756,8 +771,8 @@ fun PixelCanvas.glyphPause(x: Int, y: Int) = stamp(
 @Composable
 fun Oled(
     modifier: Modifier = Modifier,
-    onColor: Color = Color(0xFFEAF2EC),
-    offColor: Color = Color(0xFF0B0D0E),
+    onColor: Color = OledOnColor,
+    offColor: Color = OledOffColor,
     gap: Float = 0f,
     draw: PixelCanvas.() -> Unit,
 ) {

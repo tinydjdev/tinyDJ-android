@@ -12,12 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.dp
-import com.tinydj.ui.deck.AppMode
-import com.tinydj.ui.deck.DeckUiState
-import com.tinydj.ui.deck.MenuItem
-import com.tinydj.ui.deck.MiniLcd
-import com.tinydj.ui.deck.OledView
-import com.tinydj.ui.deck.PlayMode
+import com.tinydj.ui.deck.*
 import com.tinydj.ui.theme.TinyDjTheme
 import org.junit.Rule
 import org.junit.Test
@@ -47,13 +42,19 @@ class OledRenderTest {
         val screens = listOf(
             base.copy(oledView = OledView.TITLE),
             base.copy(oledView = OledView.PLAYBACK, positionMs = 63_000, trackNumber = 1, dateLabel = "TODAY"),
+            base.copy(oledView = OledView.PLAYBACK, positionMs = 63_500, trackNumber = 1, dateLabel = "TODAY"),
+            base.copy(oledView = OledView.PLAYBACK, positionMs = 59_500, trackNumber = 1, dateLabel = "TODAY"),
             base.copy(oledView = OledView.VARISPEED, varispeed = 200),
-            base.copy(oledView = OledView.VARISPEED, varispeed = -50),
+            base.copy(oledView = OledView.VARISPEED, varispeed = -99),
             base.copy(oledView = OledView.VOLUME_WEDGE, volume = 0.7f),
             base.copy(oledView = OledView.FILE_INFO, fileSampleRate = 48_000, durationMs = 192_000, trackNumber = 1),
             base.copy(oledView = OledView.BATTERY, batteryPct = 75, charging = true),
             base.copy(menuOpen = true, menuIndex = MenuItem.PLAY.ordinal),
             base.copy(menuOpen = true, settingOpen = true, menuIndex = MenuItem.PLAY.ordinal, playMode = PlayMode.REPEAT),
+            base.copy(menuOpen = true, settingOpen = true, menuIndex = MenuItem.LEDS.ordinal, leds = LedBrightness.MEDIUM, playerStyle = PlayerStyle.ADVANCED, settingFieldIndex = 0),
+            base.copy(menuOpen = true, settingOpen = true, menuIndex = MenuItem.LEDS.ordinal, leds = LedBrightness.MEDIUM, playerStyle = PlayerStyle.ADVANCED, settingFieldIndex = 1, tapeFlutter = TapeFlutterMode.ON),
+            base.copy(menuOpen = true, settingOpen = true, menuIndex = MenuItem.LEDS.ordinal, leds = LedBrightness.MEDIUM, playerStyle = PlayerStyle.ADVANCED, settingFieldIndex = 2, pitchRamp = PitchRampMode.ON),
+            base.copy(menuOpen = true, settingOpen = true, menuIndex = MenuItem.LEDS.ordinal, leds = LedBrightness.MEDIUM, playerStyle = PlayerStyle.ADVANCED, settingFieldIndex = 3, slipMode = SlipMode.ON),
             base.copy(oledView = OledView.MODE_BADGE, appMode = AppMode.LIBRARY),
         )
 

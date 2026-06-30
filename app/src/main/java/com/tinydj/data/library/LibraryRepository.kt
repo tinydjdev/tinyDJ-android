@@ -32,12 +32,15 @@ class LibraryRepository(
     private val _tracks = MutableStateFlow<List<AudioTrack>>(emptyList())
     val tracks: StateFlow<List<AudioTrack>> = _tracks.asStateFlow()
 
-    init {
-        scope.launch { reloadPersisted() }
+    private val initJob = scope.launch { reloadPersisted() }
+
+    private suspend fun ensureInitialized() {
+        initJob.join()
     }
 
     /** Import freshly-picked SAF URIs: persist read permission, extract, add. */
     suspend fun import(uris: List<Uri>, onProgress: ((imported: Int, total: Int) -> Unit)? = null) {
+        ensureInitialized()
         val added = withContext(Dispatchers.IO) {
             uris.mapIndexedNotNull { index, uri ->
                 runCatching {
@@ -83,10 +86,16 @@ class LibraryRepository(
         val uris = prefs.getStringSet(KEY_URIS, emptySet()).orEmpty()
         val held = appContext.contentResolver.persistedUriPermissions.map { it.uri.toString() }.toSet()
         val restored = uris.mapNotNull { s ->
-            // Drop any URI whose permission was revoked out from under us.
-            val hasPermission = s in held || held.any { s.startsWith(it) }
-            if (!hasPermission) return@mapNotNull null
-            runCatching { MetadataExtractor.extract(appContext, Uri.parse(s)) }.getOrNull()
+            val uri = Uri.parse(s)
+            if (uri.scheme == "file") {
+                val file = File(uri.path ?: return@mapNotNull null)
+                if (!file.exists()) return@mapNotNull null
+            } else {
+                // Drop any URI whose permission was revoked out from under us.
+                val hasPermission = s in held || held.any { s.startsWith(it) }
+                if (!hasPermission) return@mapNotNull null
+            }
+            runCatching { MetadataExtractor.extract(appContext, uri) }.getOrNull()
         }
         _tracks.value = restored
     }

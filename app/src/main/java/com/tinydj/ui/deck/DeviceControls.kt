@@ -612,3 +612,138 @@ fun PowerSwitch(
     }
 }
 
+// ---------------------------------------------------------------------------
+// LoopButtons — the A/B loop peanut keys (figure-8 housing, mirrored).
+// ---------------------------------------------------------------------------
+
+@Composable
+fun LoopButtons(
+    onTapA: () -> Unit,
+    onHoldA: () -> Unit,
+    onTapB: () -> Unit,
+    onPressA: () -> Unit,
+    onCancelVibrate: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier) {
+        // Draw the peanut outline connecting them (mirrored from SkipButtons)
+        Canvas(Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val padPx = 3.dp.toPx()
+            val keyRPx = 12.dp.toPx()
+            // Symmetrical diagonal: top-left to bottom-right
+            val start = Offset(padPx + keyRPx, padPx + keyRPx)
+            val end = Offset(w - padPx - keyRPx, h - padPx - keyRPx)
+            val len = (end - start).getDistance()
+            val angleRad = Math.atan2((end.y - start.y).toDouble(), (end.x - start.x).toDouble())
+            val angleDeg = Math.toDegrees(angleRad).toFloat()
+            val center = Offset(w / 2f, h / 2f)
+            val pillR = 17.dp.toPx()
+
+            rotate(angleDeg, center) {
+                // Draw filled pill
+                drawRoundRect(
+                    color = Metal.key,
+                    topLeft = Offset(center.x - len / 2f - pillR, center.y - pillR),
+                    size = Size(len + pillR * 2f, pillR * 2f),
+                    cornerRadius = CornerRadius(pillR, pillR)
+                )
+                // Draw outline
+                drawRoundRect(
+                    color = Metal.edgeHi,
+                    topLeft = Offset(center.x - len / 2f - pillR, center.y - pillR),
+                    size = Size(len + pillR * 2f, pillR * 2f),
+                    cornerRadius = CornerRadius(pillR, pillR),
+                    style = Stroke(width = 1.dp.toPx())
+                )
+            }
+        }
+
+        // `A` upper-left with padding (starts loop-in, holds to stop loop)
+        Box(Modifier.align(Alignment.TopStart).padding(top = 3.dp, start = 3.dp)) {
+            LoopKeyAText(
+                onTap = onTapA,
+                onHold = onHoldA,
+                onPressStart = onPressA,
+                onCancel = onCancelVibrate,
+                text = "A"
+            )
+        }
+        // `B` lower-right with padding (sets loop-out or shortens loop)
+        Box(Modifier.align(Alignment.BottomEnd).padding(bottom = 3.dp, end = 3.dp)) {
+            RoundKeyText(onClick = onTapB, text = "B")
+        }
+    }
+}
+
+@Composable
+private fun LoopKeyAText(
+    onTap: () -> Unit,
+    onHold: () -> Unit,
+    onPressStart: () -> Unit,
+    onCancel: () -> Unit,
+    text: String
+) {
+    Box(
+        Modifier
+            .size(24.dp)
+            .clip(CircleShape)
+            .background(Metal.key)
+            .border(1.dp, Metal.seam, CircleShape)
+            .pointerInput(Unit) {
+                detectTapGestures(onPress = {
+                    onPressStart()
+                    val released = kotlinx.coroutines.withTimeoutOrNull(3000) {
+                        tryAwaitRelease()
+                    }
+                    if (released == null) {
+                        onHold()
+                        tryAwaitRelease()
+                    } else {
+                        if (released) {
+                            onTap()
+                        } else {
+                            onCancel()
+                        }
+                    }
+                })
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            color = Metal.ink,
+            fontFamily = FontFamily.SansSerif,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+        )
+    }
+}
+
+@Composable
+private fun RoundKeyText(onClick: () -> Unit, text: String) {
+    Box(
+        Modifier
+            .size(24.dp)
+            .clip(CircleShape)
+            .background(Metal.key)
+            .border(1.dp, Metal.seam, CircleShape)
+            .pointerInput(Unit) {
+                detectTapGestures(onPress = {
+                    val ok = tryAwaitRelease()
+                    if (ok) onClick()
+                })
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            color = Metal.ink,
+            fontFamily = FontFamily.SansSerif,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+        )
+    }
+}
+

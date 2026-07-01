@@ -158,7 +158,7 @@ data class DeckUiState(
     val diskUsedGb: Int = 12,
     val diskTotalGb: Int = 128,
     val deviceName: String = "TINYDJ",   // NAME setting; de-branded
-    val firmwareVersion: String = "0.1.0",
+    val firmwareVersion: String = "0.1.5",
 
     // ---- overlays ----
     val fileInfoOpen: Boolean = false,
@@ -187,6 +187,10 @@ data class DeckUiState(
     val currentScanningDir: String = "",
     val recentlyFound: List<String> = emptyList(),
     val scanError: String? = null,
+
+    val musicFolderUri: String? = null,
+    val musicFolderName: String? = null,
+    val isBackgroundScanning: Boolean = false,
 
     // ---- library backing list (functional playback path) ----
     val library: List<AudioTrack> = emptyList(),
@@ -468,7 +472,7 @@ class DeckViewModel(
     // =================================================================================
 
     val uiState: StateFlow<DeckUiState> =
-        combine(engine.state, library.tracks, local) { s, tracks, loc ->
+        combine(engine.state, library.tracks, library.isBackgroundScanning, local) { s, tracks, isBgScanning, loc ->
             val idx = tracks.indexOfFirst { it.id == s.trackId }
             val hasTrack = s.trackId != null
             val transport = deriveTransport(s.isPlaying, s.isScrubbing, loc)
@@ -548,6 +552,10 @@ class DeckViewModel(
                 currentScanningDir = loc.currentScanningDir,
                 recentlyFound = loc.recentlyFound,
                 scanError = loc.scanError,
+
+                musicFolderUri = library.getMusicFolderUri(),
+                musicFolderName = library.getMusicFolderName(),
+                isBackgroundScanning = isBgScanning,
 
                 batteryPct = getBatteryPct(),
                 charging = isCharging(),
@@ -962,21 +970,20 @@ class DeckViewModel(
                 local.update { it.copy(memoArmed = false) }
                 
                 if (tempFile.exists() && tempFile.length() > 0) {
-                    val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
-                    val dir = File(musicDir, "TinyDJ/samples")
-                    if (!dir.exists()) dir.mkdirs()
-                    val extension = "wav"
-                    val sampleFile = File(dir, "SAMPLE_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.$extension")
-                    
-                    FileOutputStream(sampleFile).use { finalOut ->
-                        writeWavHeader(finalOut, 1, sampleRate, 16, tempFile.length())
-                        tempFile.inputStream().use { input ->
-                            input.copyTo(finalOut)
-                        }
+                    val fileName = "SAMPLE_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.wav"
+                    val fileInfo = library.createWavFileStream(context, isSample = true, fileName = fileName)
+                    if (fileInfo != null) {
+                        runCatching {
+                            fileInfo.outputStream.use { finalOut ->
+                                writeWavHeader(finalOut, 1, sampleRate, 16, tempFile.length())
+                                tempFile.inputStream().use { input ->
+                                    input.copyTo(finalOut)
+                                }
+                            }
+                            library.import(listOf(fileInfo.uri))
+                        }.onFailure { Log.e("DeckViewModel", "Failed to write WAV for sample", it) }
                     }
                     tempFile.delete()
-                    
-                    library.import(listOf(Uri.fromFile(sampleFile)))
                 }
             }
         }
@@ -989,25 +996,27 @@ class DeckViewModel(
 
     private fun autoScanExternalDirectories() {
         try {
-            val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
-            val tinyDjDir = File(musicDir, "TinyDJ")
-            val memosDir = File(tinyDjDir, "memos")
-            val samplesDir = File(tinyDjDir, "samples")
-            
-            val filesToImport = mutableListOf<File>()
-            listOf(memosDir, samplesDir).forEach { dir ->
-                if (dir.exists() && dir.isDirectory) {
-                    dir.listFiles()?.forEach { file ->
-                        if (file.isFile && (file.extension.equals("wav", ignoreCase = true) || file.extension.equals("mp3", ignoreCase = true))) {
-                            filesToImport.add(file)
+            val baseDir = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
+            if (baseDir != null) {
+                val tinyDjDir = File(baseDir, "TinyDJ")
+                val memosDir = File(tinyDjDir, "memos")
+                val samplesDir = File(tinyDjDir, "samples")
+                
+                val filesToImport = mutableListOf<File>()
+                listOf(memosDir, samplesDir).forEach { dir ->
+                    if (dir.exists() && dir.isDirectory) {
+                        dir.listFiles()?.forEach { file ->
+                            if (file.isFile && (file.extension.equals("wav", ignoreCase = true) || file.extension.equals("mp3", ignoreCase = true))) {
+                                filesToImport.add(file)
+                            }
                         }
                     }
                 }
-            }
-            if (filesToImport.isNotEmpty()) {
-                val uris = filesToImport.map { Uri.fromFile(it) }
-                viewModelScope.launch {
-                    library.import(uris)
+                if (filesToImport.isNotEmpty()) {
+                    val uris = filesToImport.map { Uri.fromFile(it) }
+                    viewModelScope.launch {
+                        library.import(uris)
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -1119,21 +1128,20 @@ class DeckViewModel(
                 local.update { it.copy(vuLeft = 0f, vuRight = 0f) }
                 
                 if (tempFile.exists() && tempFile.length() > 0) {
-                    val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
-                    val dir = File(musicDir, "TinyDJ/memos")
-                    if (!dir.exists()) dir.mkdirs()
-                    val extension = "wav"
-                    val memoFile = File(dir, "MEMO_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.$extension")
-                    
-                    FileOutputStream(memoFile).use { finalOut ->
-                        writeWavHeader(finalOut, 1, sampleRate, 16, tempFile.length())
-                        tempFile.inputStream().use { input ->
-                            input.copyTo(finalOut)
-                        }
+                    val fileName = "MEMO_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.wav"
+                    val fileInfo = library.createWavFileStream(context, isSample = false, fileName = fileName)
+                    if (fileInfo != null) {
+                        runCatching {
+                            fileInfo.outputStream.use { finalOut ->
+                                writeWavHeader(finalOut, 1, sampleRate, 16, tempFile.length())
+                                tempFile.inputStream().use { input ->
+                                    input.copyTo(finalOut)
+                                }
+                            }
+                            library.import(listOf(fileInfo.uri))
+                        }.onFailure { Log.e("DeckViewModel", "Failed to write WAV for memo", it) }
                     }
                     tempFile.delete()
-                    
-                    library.import(listOf(Uri.fromFile(memoFile)))
                 }
             }
         }
@@ -1989,6 +1997,30 @@ class DeckViewModel(
     // =================================================================================
     //  Folder Scanning (survives lifecycle/recreation)
     // =================================================================================
+    private fun getFolderNameFromUri(context: Context, uri: Uri): String {
+        if (uri.scheme == "content") {
+            try {
+                val documentId = DocumentsContract.getTreeDocumentId(uri)
+                val documentUri = DocumentsContract.buildDocumentUriUsingTree(uri, documentId)
+                context.contentResolver.query(
+                    documentUri,
+                    arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                    null, null, null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val idx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                        if (idx >= 0) {
+                            return cursor.getString(idx) ?: "Music Folder"
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("DeckViewModel", "Failed to query folder display name", e)
+            }
+        }
+        return uri.lastPathSegment ?: "Music Folder"
+    }
+
     fun scanDirectoryUri(context: Context, treeUri: Uri) {
         viewModelScope.launch {
             local.update {
@@ -2005,8 +2037,12 @@ class DeckViewModel(
                 // Take persistable permission for the tree itself
                 context.contentResolver.takePersistableUriPermission(
                     treeUri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 )
+
+                val folderName = getFolderNameFromUri(context, treeUri)
+                library.setMusicFolder(treeUri.toString(), folderName)
+                library.clearTracks()
 
                 val uris = withContext(Dispatchers.IO) {
                     scanDirectoryHelper(context, treeUri) { count, dirName, fileName ->
@@ -2054,6 +2090,10 @@ class DeckViewModel(
                 }
             }
         }
+    }
+
+    fun rescanLibrary(context: Context) {
+        library.runDifferentialScan(context, isBackground = true)
     }
 
     fun dismissScanError() {

@@ -140,28 +140,68 @@ fun LibraryView(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "LIBRARY",
-                    color = Ink,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 24.sp
-                )
-                
-                // Scan Directory button
-                Box(
-                    modifier = Modifier
-                        .border(1.dp, Ink, RoundedCornerShape(4.dp))
-                        .clickable(enabled = !state.isScanning) { dirPickerLauncher.launch(null) }
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "+ ADD FOLDER",
+                        text = "LIBRARY",
                         color = Ink,
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 24.sp
                     )
+                    if (state.isBackgroundScanning) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "[SYNCING...]",
+                            color = Accent,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+                
+                // Folder Selection & Action Buttons
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (state.musicFolderUri != null) {
+                        // Rescan Button
+                        Box(
+                            modifier = Modifier
+                                .border(1.dp, Ink, RoundedCornerShape(4.dp))
+                                .clickable(enabled = !state.isScanning && !state.isBackgroundScanning) {
+                                    vm.rescanLibrary(context)
+                                }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "RESCAN",
+                                color = Ink,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .border(1.dp, Ink, RoundedCornerShape(4.dp))
+                            .clickable(enabled = !state.isScanning) { dirPickerLauncher.launch(null) }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = if (state.musicFolderName != null) {
+                                "FOLDER: ${state.musicFolderName.uppercase()}"
+                            } else {
+                                "+ SELECT MUSIC FOLDER"
+                            },
+                            color = Ink,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
 
@@ -354,7 +394,7 @@ fun LibraryView(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = if (searchQuery.isNotEmpty()) "No results found" else "No tracks loaded.\nTap + ADD FOLDER to scan and import audio.",
+                            text = if (searchQuery.isNotEmpty()) "No results found" else "No tracks loaded.\nTap + SELECT MUSIC FOLDER to scan and import audio.",
                             color = Ink.copy(alpha = 0.5f),
                             fontFamily = FontFamily.Monospace,
                             fontSize = 13.sp,
